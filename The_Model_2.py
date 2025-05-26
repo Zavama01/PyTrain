@@ -16,10 +16,17 @@ N = random.choice(percorsi_validi)  # Nodi
 y = len(N)  # numero di stazioni - presupposizione
 
 # Supponiamo di chiamare le stazioni "S1", "S2", ..., "S7"
-#TODO stazioni = [f"S{N[j]}" for j in range(y)]
+# stazioni = [f"S{N[j]}" for j in range(y)]
+
+# Todo i passeggeri nelle stazioni devono salire tutti fino ad occupare più posti possibile e svuotare la stazione
+
+# todo orario arrivo + tempo percorrenza (w) + (opzionale) tempo di sosta (5 min)
+
+# orario ideale calcolo : orario randomico + sosta + percorrenza ideale (nuova variabile)
+# un solo  (o più) arco (scelto a caso) avrà la percorrenza ideale incrementata per simulare la disruption e quindi sarà una percorrenza non ideale
 
 # Genera tutte le combinazioni non ordinate di 2 nodi
-A = list(itertools.combinations(N, 2))  # Archi (grafo diretto)
+A = [(N[i], N[i + 1]) for i in range(len(N) - 1)]  # Archi diretti consecutivi (da nodo i a nodo i+1)
 
 # Genera un tempo random per ciascuna coppia
 w = {}  # Tempi di percorrenza
@@ -28,19 +35,27 @@ for (nodo1, nodo2) in A:
     minuti = random.randint(10, 30)  # da 0 a 20 minuti
     w[(nodo1, nodo2)] = minuti
 
-r = {i: random.randint(0, 60) for i in N}
+# Generazione orari ideali coerenti
+start_time = 7 * 60  # 7:00 in minuti
+r = {}
+current_time = start_time
+r[N[0]] = current_time
+for i in range(len(N) - 1):
+    current_time += w[(N[i], N[i + 1])]
+    r[N[i + 1]] = current_time
 
-# Funzione per formattare in hh:mm
+
+# Funzione per stampare orari hh:mm
 def minutes_to_time(m):
-    h = m // 60
-    mm = m % 60
+    h = int(m) // 60
+    mm = int(m) % 60
     return f"{h:02d}:{mm:02d}"
+
 
 # Stampa
 print("Orari ideali generati:")
 for i in N:
     print(f"Nodo {i}: orario ideale = {minutes_to_time(r[i])} ({r[i]} min)")
-
 
 # Passenger demand (cioè il quantitativo di passeggeri ad ogni stazione)
 # Genera valori random tra 0 e 200 per ogni stazione - presupposizione
@@ -72,10 +87,22 @@ m.setObjective(
     GRB.MINIMIZE
 )
 
+for i in N:
+    m.addConstr(x[i] >= r[i], name=f"no_anticipo_{i}")
+
 m.optimize()
 
-# Output
+# try stampa
+print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+print("\n=== Timetable Comparativa ===")
+print(f"{'Nodo':<6}{'Orario ideale':<15}{'Orario assegnato':<20}{'Ritardo':<10}{'Non serviti':<15}{'Passeggeri'}")
 for i in N:
-    print(f"Nodo {i}: orario = {x[i].X:.1f}, ritardo = {d[i].X:.1f}, non serviti = {u[i].X:.1f}")
+    orario_ideale = minutes_to_time(r[i])
+    orario_output = minutes_to_time(x[i].X)
+    ritardo = f"{d[i].X:.1f}"
+    non_serviti = f"{u[i].X:.1f}"
+    print(f"{i:<6}{orario_ideale:<15}{orario_output:<20}{ritardo:<10}{non_serviti:<15}{P[i]}")
+
+print("\n=== Passeggeri sugli archi ===")
 for (i, j) in A:
-    print(f"Arco {i}->{j}: passeggeri = {y[i, j].X:.1f}")
+    print(f"{i}->{j}: {y[i, j].X:.1f} passeggeri")
