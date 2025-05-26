@@ -1,16 +1,17 @@
 from gurobipy import *
+import random
 
 # ===================
 # === INPUT DATA ====
 # ===================
 
-# Percorsi (insiemi di archi consecutivi)
+# Percorsi (insiemi di archi consecutivi) - TODO rendi randomico
 paths = {
     'A': [(0, 1), (1, 2)],
     'B': [(3, 5), (5, 7)]
 }
 
-# Tempo di percorrenza degli archi
+# Tempo di percorrenza degli archi - TODO rendi randomico
 w = {
     (0, 1): 5,
     (1, 2): 6,
@@ -18,7 +19,7 @@ w = {
     (5, 7): 8
 }
 
-# Timetable prevista per ogni stazione (in minuti)
+# Timetable prevista per ogni stazione (in minuti) - TODO rendi randomico
 timetable = {
     0: 100,
     1: 110,
@@ -32,7 +33,7 @@ timetable = {
 pickup_window = {s: (timetable[s], timetable[s] + 10) for s in timetable}
 
 # Passeggeri associati a stazioni di partenza
-import random
+
 num_passengers = 50
 passenger_arcs = [random.choice(list(w.keys())) for _ in range(num_passengers)]
 Ps = {s: sum(1 for arc in passenger_arcs if arc[0] == s) for s in range(8)}
@@ -79,7 +80,6 @@ for i, arc in enumerate(passenger_arcs):
             # Il passeggero può essere servito solo se percorso p è scelto
             model.addConstr(x[i] <= Z[p], name=f"x_vs_Z_{i}_{p}")
 
-
 # Solo uno dei percorsi può essere scelto
 model.addConstr(quicksum(Z[p] for p in paths) <= 1, name="max_one_path")
 
@@ -116,8 +116,6 @@ for arc, pax_ids in arc_to_passengers.items():
             name=f"cap_{arc}"
         )
 # Qui andrebbe verificato quanti passeggeri prendono quella tratta
-
-
 
 model.addConstr(passeggeri_serviti == quicksum(x[i] for i in range(num_passengers)), name="pax_served_sum")
 
@@ -171,4 +169,3 @@ if model.status == GRB.OPTIMAL:
             print(f"{s:<10} {t_input:<12.1f} {t_arrival:<18.1f} {ritardo:.1f}")
 else:
     print("Nessuna soluzione ottimale trovata.")
-
