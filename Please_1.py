@@ -1,3 +1,5 @@
+import itertools
+from typing import Dict, Tuple, List
 from gurobipy import *
 import random
 
@@ -7,21 +9,24 @@ import random
 
 # Percorsi (insiemi di archi consecutivi) - TODO rendi randomico
 paths = {
-    'A': [(1, 2), (2, 3), (3, 4)],
-    'B': [(1, 3), (3, 4)]
+    'A': [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)],
+    'B': [(1, 3), (3, 4), (4, 6), (6, 7)]
 }
 
-# Tempo di percorrenza degli archi - TODO rendi randomico
-w = {
-    (1, 2): 11,
-    (2, 3): 11,
-    (3, 4): 11,
-    (1, 3): 21,
-    (1, 4): 31,
-    (2, 4): 21
-}
+# Tempo di percorrenza degli archi
+# Lista di nodi
+nodi: List[int] = list(range(1, 8))  # da 1 a 7 inclusi
+# Crea tutti gli archi i < j
+archi: List[Tuple[int, int]] = list(itertools.combinations(nodi, 2))
+# Dizionario dei pesi associati agli archi
+w: Dict[Tuple[int, int], int] = {}
+
+# Assegna un valore randomico (es: tra 10 e 120 minuti) a ogni arco
+for arco in archi:
+    w[arco] = random.randint(5, 15)
 
 # TODO inserire controllo che verifica che i tempi di percorrenza w siano >= all'intervallo di tempo che c'è fra 2 stazioni della timetable
+# TODO questo perchè attualmente è possibile arrivare in anticipo
 
 # Timetable prevista per ogni stazione (in minuti) - TODO rendi randomico
 timetable = {
@@ -64,7 +69,6 @@ arrival_time = model.addVars(range(8), vtype=GRB.CONTINUOUS, name="arrival_time"
 
 # Passeggeri serviti
 passeggeri_serviti = model.addVar(vtype=GRB.INTEGER, name="pax_served")
-
 x = model.addVars(num_passengers, vtype=GRB.BINARY, name="x")  # 1 se pax i è servito
 
 # ======================
@@ -110,7 +114,10 @@ arc_to_passengers = {arc: [] for arc in w}
 for i, arc in enumerate(passenger_arcs):
     arc_to_passengers[arc].append(i)
 
-# Per ogni arco, somma dei passeggeri che lo usano non supera capMax
+# Per ogni arco, la somma dei passeggeri che lo usano non supera capMax. Inoltre conta solo ed esclusivamente i
+# passeggeri che usano una certa tratta, quindi il filtro avviene qua e non devo preoccuparmi di passeggeri che
+# stanno alla stazione 1,percorrono 1,3 ma il percorso non ci passa, perchè questi ultimi non vengono contati in
+# quanto già filtrati
 for arc, pax_ids in arc_to_passengers.items():
     # Controlla se l’arco è in qualche percorso (altrimenti salta)
     relevant_paths = [p for p in paths if arc in paths[p]]
@@ -150,6 +157,11 @@ model.optimize()
 # ======================
 
 print(Ps)
+print(w)
+
+print("AAAAAAAAAAAAAAAAAAAA")
+print(arc_to_passengers.items())
+print("AAAAAAAAAAAAAAAAAAAA")
 
 if model.status == GRB.OPTIMAL:
     print("\n=== RISULTATO OTTIMALE ===")
