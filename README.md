@@ -1,21 +1,21 @@
-# 🚉 Ottimizzazione Percorsi e Servizio Passeggeri
+# Ottimizzazione Percorsi e Servizio Passeggeri
 
 Questo progetto implementa un modello di **Ricerca Operativa** per ottimizzare la scelta di un percorso tra più alternative, tenendo conto della possibilità di prelevare passeggeri lungo il tragitto, vincoli di orario, capacità degli archi e ritardi.
 
-## 📌 Obiettivo
+## Obiettivo
 
 Minimizzare una funzione che bilancia:
 - Il ritardo di arrivo alle stazioni rispetto a una timetable predefinita
 - Il numero di passeggeri serviti
 
-## 📁 Struttura del progetto
+## Struttura del progetto
 
 - `main.py`: Script principale che definisce i dati, le variabili decisionali, i vincoli e la funzione obiettivo.
 - `model.tex`: Formulazione matematica del modello (in LaTeX).
 - `README.md`: Questo file.
 - `requirements.txt`: Librerie Python necessarie.
 
-## ⚙️ Dipendenze
+## Dipendenze
 
 Assicurati di avere Python 3.7+ e installa le dipendenze con:
 
@@ -28,7 +28,7 @@ pip install -r requirements.txt
 - `itertools`, `random`: per generare i dati casuali
 - `typing`: per annotazioni
 
-## 🧠 Modello matematico
+## Modello matematico
 
 Il modello considera:
 - Un insieme di percorsi, ciascuno costituito da una sequenza di archi
@@ -43,20 +43,20 @@ La funzione obiettivo minimizza:
 0.5 \cdot 	ext{ritardi totali} - 	ext{numero passeggeri serviti}
 ```
 
-## 📊 Variabili chiave
+## Variabili chiave
 
 - `Z_p`: binaria, vale 1 se il percorso `p` è scelto
 - `t_s`: tempo di arrivo alla stazione `s`
 - `x_i`: binaria, vale 1 se il passeggero `i` è servito
 - `pax_served`: intero, totale passeggeri serviti
 
-## 🧩 Esempi di vincoli
+## Esempi di vincoli
 
 - Capacità su ogni arco: nessun arco può trasportare più di `capMax` passeggeri
 - Ogni passeggero può essere servito solo se compatibile con un percorso selezionato
 - Il tempo di arrivo alla stazione deve rientrare nella finestra consentita
 
-## 📦 Output
+## Output
 
 Il modello restituisce:
 - Il percorso ottimale selezionato
@@ -64,10 +64,6 @@ Il modello restituisce:
 - Gli orari di arrivo alle stazioni
 - I ritardi rispetto alla timetable
 
-## 📄 Licenza
+## Licenza
 
 Distribuito sotto licenza MIT.
-
-## 🤝 Contatti
-
-Per domande, apri una issue o contattami su [email@example.com](mailto:email@example.com)
