@@ -43,7 +43,6 @@ timetable = {
 pickup_window = {s: (timetable[s], timetable[s] + 10) for s in timetable}
 
 # Passeggeri associati a stazioni di partenza
-
 num_passengers = 10
 passenger_arcs = [random.choice(list(w.keys())) for _ in range(num_passengers)]
 Ps = {s: sum(1 for arc in passenger_arcs if arc[0] == s) for s in range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1)}
@@ -57,11 +56,11 @@ capMax = 2
 
 model = Model("Path_Selection")
 
-# Variabile binaria: 1 se scelgo il percorso P
+# Variabile binaria: 1 se scelgo il percorso P, 0 altrimenti
 Z = model.addVars(paths.keys(), vtype=GRB.BINARY, name="Z")
 
 # Orari di arrivo alle stazioni
-arrival_time = model.addVars(range(8), vtype=GRB.CONTINUOUS, name="arrival_time")
+arrival_time = model.addVars(range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1), vtype=GRB.CONTINUOUS, name="arrival_time")
 
 # ========================
 # === VARIABILI PASSEGGERI SERVITI ===
@@ -104,14 +103,11 @@ for p, arcs in paths.items():
             name=f"time_progression_{p}_{u}_{v}"
         )
 
-# Capacità su ogni tratta: passeggeri che passano non devono superare capMax
-# ========================
-# === VINCOLI DI CAPACITÀ ===
-# ========================
 
 # ========================
 # === VINCOLI PASSEGGERI & CAPACITÀ ===
 # ========================
+# Capacità su ogni tratta: passeggeri che passano non devono superare capMax
 
 # Big-M per vincoli condizionali
 M = 1e4
@@ -196,6 +192,7 @@ print("AAAAAAAAAAAAAAAAAAAA")
 
 if model.status == GRB.OPTIMAL:
     print("\n=== RISULTATO OTTIMALE ===")
+    print("Valore della funzione obiettivo:", model.ObjVal)
 
     # Percorso scelto
     selected_path = None
