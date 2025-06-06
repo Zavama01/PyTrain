@@ -109,9 +109,6 @@ for p, arcs in paths.items():
 # ========================
 # Capacità su ogni tratta: passeggeri che passano non devono superare capMax
 
-# Big-M per vincoli condizionali
-M = 1e4
-
 # Mappa arco -> lista di passeggeri che lo usano
 arc_to_passengers = {arc: [] for arc in w}
 for i, arc in enumerate(passenger_arcs):
@@ -186,9 +183,9 @@ model.optimize()
 # === OUTPUT ===========
 # ======================
 
-print("AAAAAAAAAAAAAAAAAAAA")
+print("======================")
 print(arc_to_passengers.items())
-print("AAAAAAAAAAAAAAAAAAAA")
+print("======================")
 
 if model.status == GRB.OPTIMAL:
     print("\n=== RISULTATO OTTIMALE ===")
