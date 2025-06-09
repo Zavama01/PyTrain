@@ -16,10 +16,10 @@ import random
 
 # Percorsi (insiemi di archi consecutivi)
 paths = {
-    'A': [(1, 2), (2, 4)],
-    'B': [(1, 3), (3, 4)],
-    'C': [(1, 4)],
-    'D': [(1, 2), (2, 3), (3, 4)]
+    'A': [(1, 2), (2, 4), (4, 5)],
+    'B': [(1, 3), (3, 4), (4, 5)],
+    'C': [(1, 4), (4, 5)],
+    'D': [(1, 2), (2, 3), (3, 4), (4, 5)]
 }
 
 # costo del percorso (in termini di budget)
@@ -191,10 +191,17 @@ model.addConstr(
 # === FUNZIONE OBIETTIVO ===
 # ======================
 
-# Minimizzare ritardo
+# Minimizzare Ritardo
 ritardi = []
 for p, arcs in paths.items():
-    for (u, _) in arcs:
+    visited = []
+    for (u, v) in arcs:
+        if u not in visited:
+            visited.append(u)
+        if v not in visited:
+            visited.append(v)
+
+    for u in visited:
         ritardi.append((arrival_time[u] - timetable[u]) * Z[p])
 
 model.setObjective(quicksum(ritardi), GRB.MINIMIZE)
@@ -210,7 +217,13 @@ model.optimize()
 # ======================
 
 print("======================")
-print(w)
+if model.status == GRB.OPTIMAL:
+    print("Dettagli ritardi calcolati:")
+    for p, arcs in paths.items():
+        for (u, _) in arcs:
+            ritardo_val = (arrival_time[u].X - timetable[u]) * Z[p].X
+            print(f"Percorso {p} - Stazione {u}: arrivo = {arrival_time[u].X:.1f}, timetable = {timetable[u]}, Z = {Z[p].X}, ritardo = {ritardo_val:.1f}")
+
 print("======================")
 
 if model.status == GRB.OPTIMAL:
