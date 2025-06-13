@@ -3,6 +3,7 @@
   <component name="ChangeListManager">
     <list default="true" id="0fa5ddb7-a2a1-4a90-8f47-2191e7632e9f" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/MaxPax.py" beforeDir="false" afterPath="$PROJECT_DIR$/MaxPax.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/MinRit.py" beforeDir="false" afterPath="$PROJECT_DIR$/MinRit.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -36,7 +37,7 @@
     &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
 }</component>
-  <component name="RunManager" selected="Python.MinRit">
+  <component name="RunManager" selected="Python.MaxPax (1)">
     <configuration name="Check" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="Gurobi_Test" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -144,8 +145,8 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.MinRit" />
         <item itemvalue="Python.MaxPax (1)" />
+        <item itemvalue="Python.MinRit" />
         <item itemvalue="Python.MaxPax" />
         <item itemvalue="Python.Check" />
         <item itemvalue="Python.Please_1" />

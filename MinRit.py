@@ -16,11 +16,27 @@ import random
 
 # Percorsi (insiemi di archi consecutivi)
 paths = {
-    'A': [(1, 2), (2, 4), (4, 5)],
-    'B': [(1, 3), (3, 4), (4, 5)],
-    'C': [(1, 4), (4, 5)],
-    'D': [(1, 2), (2, 3), (3, 4), (4, 5)]
+    'A': [(1, 2), (2, 4), (4, 5), (5, 6), (6, 7)],
+    'B': [(1, 3), (3, 4), (4, 5), (5, 6), (6, 7)],
+    'C': [(1, 4), (4, 5), (5, 6), (6, 7)],
+    'D': [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)]
 }
+
+# Mappa: percorso -> sequenza ordinata dei nodi attraversati
+path_node_sequence = {}
+for p, arcs in paths.items():
+    seq = [arcs[0][0]]
+    for (u, v) in arcs:
+        if seq[-1] != u:
+            seq.append(u)
+        seq.append(v)
+    # Rimuove duplicati consecutivi
+    final_seq = []
+    for node in seq:
+        if not final_seq or final_seq[-1] != node:
+            final_seq.append(node)
+    path_node_sequence[p] = final_seq
+
 
 # costo del percorso (in termini di budget)
 paths_cost = {
@@ -30,7 +46,7 @@ paths_cost = {
     'D': 210
 }
 
-budget = 800
+budget = 220
 
 # Tempo di percorrenza degli archi
 # Lista di nodi
@@ -43,7 +59,7 @@ w: Dict[Tuple[int, int], int] = {}
 
 # Assegna un valore randomico (es: tra 5 e 15 minuti) a ogni arco
 for arco in archi:
-    w[arco] = random.randint(5, 15)
+    w[arco] = random.randint(5, 7)
 
 # Timetable prevista per ogni stazione (in minuti)
 timetable = {
@@ -66,7 +82,7 @@ Ps = {s: sum(1 for arc in passenger_arcs if arc[0] == s) for s in
       range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1)}
 
 # Capacità massima per arco
-capMax = 5
+capMax = 10
 
 # ======================
 # === MODELLO GUROBI ===
@@ -109,7 +125,7 @@ for i, arc in enumerate(passenger_arcs):
 
 # todo vincolo disattivato perchè è stato aggiunto il vincolo del budget che limita i percorsi selezionabili
 # Solo uno dei percorsi può essere scelto
-# model.addConstr(quicksum(Z[p] for p in paths) <= 2, name="max_one_path")
+# model.addConstr(quicksum(Z[p] for p in paths) <= 1, name="max_one_path")
 
 
 # Orari di arrivo nei nodi (solo se il percorso è scelto)
@@ -133,26 +149,28 @@ arc_to_passengers = {arc: [] for arc in w}
 for i, arc in enumerate(passenger_arcs):
     arc_to_passengers[arc].append(i)
 
-# Pre-calcola i nodi presenti in ogni percorso
-path_nodes = {p: set(n for arc in paths[p] for n in arc) for p in paths}
+# Mappa passeggero -> percorsi compatibili con arco (u, v) in ordine
+pax_path_compatibility = {i: [] for i in range(num_passengers)}
+for i, (u, v) in enumerate(passenger_arcs):
+    for p, seq in path_node_sequence.items():
+        if u in seq and v in seq and seq.index(u) < seq.index(v):
+            pax_path_compatibility[i].append(p)
 
 # VINCOLI DI CAPACITÀ
 # Capacità su ogni tratta: passeggeri che passano non devono superare capMax
 for arc, pax_ids in arc_to_passengers.items():
-    u, v = arc
-    # Trova i percorsi che contengono entrambi i nodi u e v (anche indirettamente)
-    relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
-
-    if relevant_paths:
-        model.addConstr(
-            quicksum(x[i] for i in pax_ids) <= capMax * quicksum(Z[p] for p in relevant_paths),
-            name=f"cap_{arc}"
-        )
+    for i in pax_ids:
+        relevant_paths = pax_path_compatibility[i]
+        if relevant_paths:
+            model.addConstr(
+                quicksum(x[i] for i in pax_ids) <= capMax * quicksum(Z[p] for p in relevant_paths),
+                name=f"cap_{arc}"
+            )
 
 # VINCOLI DI SERVIZIO PASSEGGERI
 for i, arc in enumerate(passenger_arcs):
     u, v = arc
-    relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
+    relevant_paths = pax_path_compatibility[i]
 
     if relevant_paths:
         window_start, window_end = pickup_window.get(u, (0, 1e5))
@@ -179,13 +197,10 @@ for i, arc in enumerate(passenger_arcs):
 model.addConstr(passeggeri_serviti == quicksum(x[i] for i in range(num_passengers)), name="pax_served_sum")
 
 # Numero minimo di passeggeri che vanno serviti (70% del totale)
-model.addConstr(passeggeri_serviti >= 0.7 * num_passengers, name="min_pax_served")
+model.addConstr(passeggeri_serviti >= 0.9 * num_passengers, name="min_pax_served")
 
 # vincolo di budget sui percorsi scelti
-model.addConstr(
-    quicksum(paths_cost[p] * Z[p] for p in paths_cost) <= budget,
-    name="budget_constraint"
-)
+model.addConstr(quicksum(paths_cost[p] * Z[p] for p in paths_cost) <= budget, name="budget_constraint")
 
 # ======================
 # === FUNZIONE OBIETTIVO ===
@@ -217,6 +232,7 @@ model.optimize()
 # ======================
 
 print("======================")
+print(arc_to_passengers.items())
 if model.status == GRB.OPTIMAL:
     print("Dettagli ritardi calcolati:")
     for p, arcs in paths.items():
@@ -260,3 +276,37 @@ if model.status == GRB.OPTIMAL:
             print(f"Passeggero {i} su arco {passenger_arcs[i]}")
 else:
     print("Nessuna soluzione ottimale trovata.")
+
+
+if model.status == GRB.OPTIMAL:
+    for i, arc in enumerate(passenger_arcs):
+        u, v = arc
+        if x[i].X < 0.5:
+            print(f"Passeggero {i} NON servito – arco {arc}")
+            relevant_paths = [p for p in paths if u in path_node_sequence[p] and v in path_node_sequence[p] and
+                              path_node_sequence[p].index(u) < path_node_sequence[p].index(v)]
+
+            if not relevant_paths:
+                print("  ❌ Nessun percorso compatibile con l’arco.")
+                continue
+
+            print(f"  ✅ Percorsi compatibili: {relevant_paths}")
+
+            served_by_path = False
+            for p in relevant_paths:
+                if Z[p].X > 0.5:
+                    print(f"  → Percorso {p} attivo")
+                    served_by_path = True
+
+                    arr_time = arrival_time[u].X
+                    win_start, win_end = pickup_window[u]
+                    if not (win_start <= arr_time <= win_end):
+                        print(f"    ❌ Orario arrivo {arr_time:.2f} fuori dalla finestra ({win_start}, {win_end})")
+                    else:
+                        print(f"    ✅ Orario arrivo nella finestra")
+
+            if not served_by_path:
+                print("  ❌ Nessun percorso attivo compatibile")
+
+
+

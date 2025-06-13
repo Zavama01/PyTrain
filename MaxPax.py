@@ -16,34 +16,32 @@ import random
 
 # Percorsi (insiemi di archi consecutivi)
 paths = {
-    'A': [(1, 2), (2, 4)],
-    'B': [(1, 3), (3, 4)],
-    'C': [(1, 4)],
-    'D': [(1, 2), (2, 3), (3, 4)]
+    'C': [(1, 4), (4, 5), (5, 6), (6, 7)],
+    'D': [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)]
 }
 
 # costo del percorso (in termini di budget)
 paths_cost = {
-    'A': 200,
-    'B': 220,
-    'C': 190,
-    'D': 210
+    'C': 200,
+    'D': 200
 }
 
-budget = 700
+budget = 220
 
-# Tempo di percorrenza degli archi
+
 # Lista di nodi
 nodi: List[int] = list(
     range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1))  # da 1 a ultima stazione inclusi
 # Crea tutti gli archi i < j
 archi: List[Tuple[int, int]] = list(itertools.combinations(nodi, 2))
+
+# Tempo di percorrenza degli archi
 # Dizionario dei pesi associati agli archi
 w: Dict[Tuple[int, int], int] = {}
 
 # Assegna un valore randomico (es: tra 5 e 15 minuti) a ogni arco
 for arco in archi:
-    w[arco] = random.randint(5, 15)
+    w[arco] = random.randint(1, 3)
 
 # Timetable prevista per ogni stazione (in minuti)
 timetable = {
@@ -60,13 +58,14 @@ timetable = {
 pickup_window = {s: (timetable[s], timetable[s] + 10) for s in timetable}
 
 # Passeggeri associati a stazioni di partenza
-num_passengers = 10
-passenger_arcs = [random.choice(list(w.keys())) for _ in range(num_passengers)]
+num_passengers = 1
+# passenger_arcs = [random.choice(list(w.keys())) for _ in range(num_passengers)]
+passenger_arcs = [(2, 5)]
 Ps = {s: sum(1 for arc in passenger_arcs if arc[0] == s) for s in
       range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1)}
 
 # Capacità massima per arco
-capMax = 2
+capMax = 10
 
 # ======================
 # === MODELLO GUROBI ===
@@ -93,18 +92,26 @@ x = model.addVars(num_passengers, vtype=GRB.BINARY, name="x")  # 1 se pax i è s
 # === VINCOLI =====
 # ======================
 
+model.addConstr(Z['D'] == 1) # todo da rimuovere
+
 # Vincolo per ogni passeggero: può essere servito solo se arco è nel percorso e orario è ok
 M = 1e4  # Big M per disattivare vincoli se non necessario
 
 for i, arc in enumerate(passenger_arcs):
     u, v = arc
     for p in paths:
-        if arc in paths[p]:
+        # Ottieni la lista ordinata dei nodi nel percorso p
+        path_nodes = [paths[p][0][0]] + [v_ for (_, v_) in paths[p]]
+
+        # Controlla se u e v sono nel percorso, e se u viene prima di v
+        if u in path_nodes and v in path_nodes and path_nodes.index(u) < path_nodes.index(v):
             window_start, window_end = pickup_window.get(u, (0, 1e5))
-            # Orario all’origine entro finestra (soft enforcement con Big-M)
+
+            # Vincoli sulla finestra temporale per l'origine u (soft con Big-M)
             model.addConstr(arrival_time[u] >= window_start - (1 - Z[p]) * M, name=f"window_start_{i}_{p}")
             model.addConstr(arrival_time[u] <= window_end + (1 - Z[p]) * M, name=f"window_end_{i}_{p}")
-            # Il passeggero può essere servito solo se percorso p è scelto
+
+            # Il passeggero può essere servito solo se il percorso p è attivo
             model.addConstr(x[i] <= Z[p], name=f"x_vs_Z_{i}_{p}")
 
 # todo vincolo disattivato perchè è stato aggiunto il vincolo del budget che limita i percorsi selezionabili
@@ -148,6 +155,7 @@ for arc, pax_ids in arc_to_passengers.items():
             quicksum(x[i] for i in pax_ids) <= capMax * quicksum(Z[p] for p in relevant_paths),
             name=f"cap_{arc}"
         )
+
 
 # VINCOLI DI SERVIZIO PASSEGGERI
 for i, arc in enumerate(passenger_arcs):
@@ -194,7 +202,14 @@ model.addConstr(
 # Minimizzare ritardo + massimizzare passeggeri serviti
 ritardi = []
 for p, arcs in paths.items():
-    for (u, _) in arcs:
+    visited = []
+    for (u, v) in arcs:
+        if u not in visited:
+            visited.append(u)
+        if v not in visited:
+            visited.append(v)
+
+    for u in visited:
         ritardi.append((arrival_time[u] - timetable[u]) * Z[p])
 
 model.setObjective(passeggeri_serviti, GRB.MAXIMIZE)
@@ -211,6 +226,7 @@ model.optimize()
 
 
 print("======================")
+print(passenger_arcs)
 print(arc_to_passengers.items())
 print("======================")
 
@@ -239,7 +255,7 @@ if model.status == GRB.OPTIMAL:
                 if s in timetable:
                     t_input = timetable[s]
                     t_arrival = arrival_time[s].X
-                    ritardo = max(0, t_arrival - t_input)
+                    ritardo = t_arrival - t_input
                     print(f"{p:<10} {s:<10} {t_input:<12.1f} {t_arrival:<18.1f} {ritardo:.1f}")
 
     print("\nPasseggeri serviti (indice e arco):")
@@ -248,3 +264,16 @@ if model.status == GRB.OPTIMAL:
             print(f"Passeggero {i} su arco {passenger_arcs[i]}")
 else:
     print("Nessuna soluzione ottimale trovata.")
+
+# Supponiamo che Z[p].X > 0.5 solo per il percorso attivo
+active_path = [p for p in Z if Z[p].X > 0.5][0]
+active_arcs = set(paths[active_path])  # contiene tuple (u, v)
+for i, (u, v) in enumerate(passenger_arcs):
+    if x[i].X < 0.5:
+        if (u, v) not in active_arcs:
+            print(f"❌ Passeggero {i} su arco ({u}, {v}) – direzione NON compatibile con percorso {active_path}")
+        else:
+            print(f"✅ Passeggero {i} su arco ({u}, {v}) – direzione compatibile")
+
+
+
