@@ -22,22 +22,6 @@ paths = {
     'D': [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)]
 }
 
-# Mappa: percorso -> sequenza ordinata dei nodi attraversati
-path_node_sequence = {}
-for p, arcs in paths.items():
-    seq = [arcs[0][0]]
-    for (u, v) in arcs:
-        if seq[-1] != u:
-            seq.append(u)
-        seq.append(v)
-    # Rimuove duplicati consecutivi
-    final_seq = []
-    for node in seq:
-        if not final_seq or final_seq[-1] != node:
-            final_seq.append(node)
-    path_node_sequence[p] = final_seq
-
-
 # costo del percorso (in termini di budget)
 paths_cost = {
     'A': 200,
@@ -48,18 +32,19 @@ paths_cost = {
 
 budget = 220
 
-# Tempo di percorrenza degli archi
 # Lista di nodi
 nodi: List[int] = list(
     range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1))  # da 1 a ultima stazione inclusi
 # Crea tutti gli archi i < j
 archi: List[Tuple[int, int]] = list(itertools.combinations(nodi, 2))
+
+# Tempo di percorrenza degli archi
 # Dizionario dei pesi associati agli archi
 w: Dict[Tuple[int, int], int] = {}
 
 # Assegna un valore randomico (es: tra 5 e 15 minuti) a ogni arco
 for arco in archi:
-    w[arco] = random.randint(5, 7)
+    w[arco] = random.randint(1, 3)
 
 # Timetable prevista per ogni stazione (in minuti)
 timetable = {
@@ -102,30 +87,40 @@ arrival_time = model.addVars(range(1, max(n for arcs in paths.values() for arc i
 # ========================
 
 # Passeggeri serviti
-passeggeri_serviti = model.addVar(vtype=GRB.INTEGER, name="pax_served")
+passeggeri_serviti = model.addVar(vtype=GRB.INTEGER, name="pax_served")  # todo
 x = model.addVars(num_passengers, vtype=GRB.BINARY, name="x")  # 1 se pax i è servito
 
 # ======================
 # === VINCOLI =====
 # ======================
 
+# Pre-calcola i nodi presenti in ogni percorso
+path_nodes = {p: set(n for arc in paths[p] for n in arc) for p in paths}
+
 # Vincolo per ogni passeggero: può essere servito solo se arco è nel percorso e orario è ok
 M = 1e4  # Big M per disattivare vincoli se non necessario
 
 for i, arc in enumerate(passenger_arcs):
     u, v = arc
+    relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
     for p in paths:
-        if arc in paths[p]:
+        # Controlla se u e v sono nel percorso, e se u viene prima di v
+        if relevant_paths:
             window_start, window_end = pickup_window.get(u, (0, 1e5))
-            # Orario all’origine entro finestra (soft enforcement con Big-M)
+
+            # Vincoli sulla finestra temporale per l'origine u (soft con Big-M)
             model.addConstr(arrival_time[u] >= window_start - (1 - Z[p]) * M, name=f"window_start_{i}_{p}")
             model.addConstr(arrival_time[u] <= window_end + (1 - Z[p]) * M, name=f"window_end_{i}_{p}")
-            # Il passeggero può essere servito solo se percorso p è scelto
-            model.addConstr(x[i] <= Z[p], name=f"x_vs_Z_{i}_{p}")
+
+            # Il passeggero può essere servito solo se il percorso p è attivo
+            model.addConstr(
+                x[i] <= quicksum(Z[p] for p in relevant_paths),
+                name=f"x_path_check_{i}"
+            )
 
 # todo vincolo disattivato perchè è stato aggiunto il vincolo del budget che limita i percorsi selezionabili
 # Solo uno dei percorsi può essere scelto
-# model.addConstr(quicksum(Z[p] for p in paths) <= 1, name="max_one_path")
+# model.addConstr(quicksum(Z[p] for p in paths) <= 2, name="max_one_path")
 
 
 # Orari di arrivo nei nodi (solo se il percorso è scelto)
@@ -149,28 +144,23 @@ arc_to_passengers = {arc: [] for arc in w}
 for i, arc in enumerate(passenger_arcs):
     arc_to_passengers[arc].append(i)
 
-# Mappa passeggero -> percorsi compatibili con arco (u, v) in ordine
-pax_path_compatibility = {i: [] for i in range(num_passengers)}
-for i, (u, v) in enumerate(passenger_arcs):
-    for p, seq in path_node_sequence.items():
-        if u in seq and v in seq and seq.index(u) < seq.index(v):
-            pax_path_compatibility[i].append(p)
-
 # VINCOLI DI CAPACITÀ
 # Capacità su ogni tratta: passeggeri che passano non devono superare capMax
 for arc, pax_ids in arc_to_passengers.items():
-    for i in pax_ids:
-        relevant_paths = pax_path_compatibility[i]
-        if relevant_paths:
-            model.addConstr(
-                quicksum(x[i] for i in pax_ids) <= capMax * quicksum(Z[p] for p in relevant_paths),
-                name=f"cap_{arc}"
-            )
+    u, v = arc
+    # Trova i percorsi che contengono entrambi i nodi u e v (anche indirettamente)
+    relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
+
+    if relevant_paths:
+        model.addConstr(
+            quicksum(x[i] for i in pax_ids) <= capMax * quicksum(Z[p] for p in relevant_paths),
+            name=f"cap_{arc}"
+        )
 
 # VINCOLI DI SERVIZIO PASSEGGERI
 for i, arc in enumerate(passenger_arcs):
     u, v = arc
-    relevant_paths = pax_path_compatibility[i]
+    relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
 
     if relevant_paths:
         window_start, window_end = pickup_window.get(u, (0, 1e5))
@@ -197,16 +187,19 @@ for i, arc in enumerate(passenger_arcs):
 model.addConstr(passeggeri_serviti == quicksum(x[i] for i in range(num_passengers)), name="pax_served_sum")
 
 # Numero minimo di passeggeri che vanno serviti (70% del totale)
-model.addConstr(passeggeri_serviti >= 0.9 * num_passengers, name="min_pax_served")
+model.addConstr(passeggeri_serviti >= 0.7 * num_passengers, name="min_pax_served")
 
 # vincolo di budget sui percorsi scelti
-model.addConstr(quicksum(paths_cost[p] * Z[p] for p in paths_cost) <= budget, name="budget_constraint")
+model.addConstr(
+    quicksum(paths_cost[p] * Z[p] for p in paths_cost) <= budget,
+    name="budget_constraint"
+)
 
 # ======================
 # === FUNZIONE OBIETTIVO ===
 # ======================
 
-# Minimizzare Ritardo
+# Minimizzare ritardo + massimizzare passeggeri serviti
 ritardi = []
 for p, arcs in paths.items():
     visited = []
@@ -232,13 +225,6 @@ model.optimize()
 # ======================
 
 print("======================")
-print(arc_to_passengers.items())
-if model.status == GRB.OPTIMAL:
-    print("Dettagli ritardi calcolati:")
-    for p, arcs in paths.items():
-        for (u, _) in arcs:
-            ritardo_val = (arrival_time[u].X - timetable[u]) * Z[p].X
-            print(f"Percorso {p} - Stazione {u}: arrivo = {arrival_time[u].X:.1f}, timetable = {timetable[u]}, Z = {Z[p].X}, ritardo = {ritardo_val:.1f}")
 
 print("======================")
 
@@ -267,7 +253,7 @@ if model.status == GRB.OPTIMAL:
                 if s in timetable:
                     t_input = timetable[s]
                     t_arrival = arrival_time[s].X
-                    ritardo = max(0, t_arrival - t_input)
+                    ritardo = t_arrival - t_input
                     print(f"{p:<10} {s:<10} {t_input:<12.1f} {t_arrival:<18.1f} {ritardo:.1f}")
 
     print("\nPasseggeri serviti (indice e arco):")
@@ -275,38 +261,29 @@ if model.status == GRB.OPTIMAL:
         if xi.X > 0.5:
             print(f"Passeggero {i} su arco {passenger_arcs[i]}")
 else:
-    print("Nessuna soluzione ottimale trovata.")
 
+    print("\n❌ Modello INFEASIBILE. Calcolo dell'IIS per identificare i vincoli responsabili...\n")
+    model.computeIIS()
 
-if model.status == GRB.OPTIMAL:
-    for i, arc in enumerate(passenger_arcs):
-        u, v = arc
-        if x[i].X < 0.5:
-            print(f"Passeggero {i} NON servito – arco {arc}")
-            relevant_paths = [p for p in paths if u in path_node_sequence[p] and v in path_node_sequence[p] and
-                              path_node_sequence[p].index(u) < path_node_sequence[p].index(v)]
+    print("Vincoli che causano l'infeasibilità:\n")
+    for c in model.getConstrs():
+        if c.IISConstr:
+            print(f" - {c.ConstrName}")
 
-            if not relevant_paths:
-                print("  ❌ Nessun percorso compatibile con l’arco.")
-                continue
+    print("\nVariabili coinvolte:\n")
+    for v in model.getVars():
+        if v.IISLB or v.IISUB:
+            bounds = []
+            if v.IISLB:
+                bounds.append("LB")
+            if v.IISUB:
+                bounds.append("UB")
+            if v.IISFixed:
+                bounds.append("Fixed")
+            print(f" - {v.VarName} (bounds: {', '.join(bounds)})")
 
-            print(f"  ✅ Percorsi compatibili: {relevant_paths}")
-
-            served_by_path = False
-            for p in relevant_paths:
-                if Z[p].X > 0.5:
-                    print(f"  → Percorso {p} attivo")
-                    served_by_path = True
-
-                    arr_time = arrival_time[u].X
-                    win_start, win_end = pickup_window[u]
-                    if not (win_start <= arr_time <= win_end):
-                        print(f"    ❌ Orario arrivo {arr_time:.2f} fuori dalla finestra ({win_start}, {win_end})")
-                    else:
-                        print(f"    ✅ Orario arrivo nella finestra")
-
-            if not served_by_path:
-                print("  ❌ Nessun percorso attivo compatibile")
-
+    # Scrivi il modello IIS su file per ispezione manuale
+    model.write("model.ilp")  # Puoi aprirlo con un editor di testo
+    print("File LP e ILP scritti con successo.")
 
 

@@ -201,18 +201,59 @@ if model.status == GRB.OPTIMAL:
     # Passeggeri serviti
     print(f"\nPasseggeri serviti: {int(passeggeri_serviti.X)}")
 
-    # Tabella con orari e ritardi
-    print("\nOrari e ritardi alle fermate:")
-    print(f"{'Stazione':<10} {'Timetable':<12} {'Arrivo Calcolato':<18} {'Ritardo (min)'}")
+    # Tabella con orari e ritardi per ciascun percorso selezionato
+    print("\nOrari e ritardi alle fermate per ciascun percorso selezionato:")
+    print(f"{'Percorso':<10} {'Stazione':<10} {'Timetable':<12} {'Arrivo Calcolato':<18} {'Ritardo (min)'}")
 
-    for s in sorted(timetable):
-        if selected_path and any(s in arc for arc in paths[selected_path]):
-            t_input = timetable[s]
-            t_arrival = arrival_time[s].X
-            ritardo = max(0, t_arrival - t_input)
-            print(f"{s:<10} {t_input:<12.1f} {t_arrival:<18.1f} {ritardo:.1f}")
+    for p in paths:
+        if Z[p].X > 0.5:
+            nodes_in_path = set(n for arc in paths[p] for n in arc)
+            for s in sorted(nodes_in_path):
+                if s in timetable:
+                    t_input = timetable[s]
+                    t_arrival = arrival_time[s].X
+                    ritardo = t_arrival - t_input
+                    print(f"{p:<10} {s:<10} {t_input:<12.1f} {t_arrival:<18.1f} {ritardo:.1f}")
+
+    print("\nPasseggeri serviti (indice e arco):")
+    for i, xi in enumerate(x.values()):
+        if xi.X > 0.5:
+            print(f"Passeggero {i} su arco {passenger_arcs[i]}")
 else:
-    print("Nessuna soluzione ottimale trovata.")
+
+    print("\n❌ Modello INFEASIBILE. Calcolo dell'IIS per identificare i vincoli responsabili...\n")
+    model.computeIIS()
+
+    print("Vincoli che causano l'infeasibilità:\n")
+    for c in model.getConstrs():
+        if c.IISConstr:
+            print(f" - {c.ConstrName}")
+
+    print("\nVariabili coinvolte:\n")
+    for v in model.getVars():
+        if v.IISLB or v.IISUB:
+            bounds = []
+            if v.IISLB:
+                bounds.append("LB")
+            if v.IISUB:
+                bounds.append("UB")
+            if v.IISFixed:
+                bounds.append("Fixed")
+            print(f" - {v.VarName} (bounds: {', '.join(bounds)})")
+
+    # Scrivi il modello IIS su file per ispezione manuale
+    model.write("model.ilp")  # Puoi aprirlo con un editor di testo
+    print("File LP e ILP scritti con successo.")
+
+# Supponiamo che Z[p].X > 0.5 solo per il percorso attivo
+# active_path = [p for p in Z if Z[p].X > 0.5][0]
+# active_arcs = set(paths[active_path])  # contiene tuple (u, v)
+# for i, (u, v) in enumerate(passenger_arcs):
+#    if x[i].X < 0.5:
+#        if (u, v) not in active_arcs:
+#            print(f"❌ Passeggero {i} su arco ({u}, {v}) – direzione NON compatibile con percorso {active_path}")
+#        else:
+#            print(f"✅ Passeggero {i} su arco ({u}, {v}) – direzione compatibile")
 
 print("\nPasseggeri serviti (indice e arco):")
 for i, xi in enumerate(x.values()):
