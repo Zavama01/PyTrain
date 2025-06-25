@@ -3,12 +3,8 @@ from typing import Dict, Tuple, List
 from gurobipy import *
 import random
 
-# ogni percorso ha un valore preimpostato (budget del percorso)
-# Variabile budget = valore
-# Vincolo su passeggeri num_pax_served >= valore minimo
-# Funzione Obbiettivo - calcolo ritardi
-
-# 70% passeggeri totali o 70% passwggeri dei percorsi scelti?
+# il budget serve solo a limitare la scelta ad un percorso che rispetta il vincolo di budget dato che si può scegliere un solo percorso
+# capMax è uguale per tutti
 
 # ===================
 # === INPUT DATA ====
@@ -27,10 +23,12 @@ paths_cost = {
     'A': 200,
     'B': 220,
     'C': 190,
-    'D': 210
+    'D': 700
 }
 
-budget = 220
+capMax = 20
+
+budget = 500
 
 # Lista di nodi
 nodi: List[int] = list(
@@ -61,13 +59,12 @@ timetable = {
 pickup_window = {s: (timetable[s], timetable[s] + 10) for s in timetable}
 
 # Passeggeri associati a stazioni di partenza
-num_passengers = 10
+num_passengers = 100
+
 passenger_arcs = [random.choice(list(w.keys())) for _ in range(num_passengers)]
+
 Ps = {s: sum(1 for arc in passenger_arcs if arc[0] == s) for s in
       range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1)}
-
-# Capacità massima per arco
-capMax = 10
 
 # ======================
 # === MODELLO GUROBI ===
@@ -81,10 +78,6 @@ Z = model.addVars(paths.keys(), vtype=GRB.BINARY, name="Z")
 # Orari di arrivo alle stazioni
 arrival_time = model.addVars(range(1, max(n for arcs in paths.values() for arc in arcs for n in arc) + 1),
                              vtype=GRB.CONTINUOUS, name="arrival_time")
-
-# ========================
-# === VARIABILI PASSEGGERI SERVITI ===
-# ========================
 
 # Passeggeri serviti
 passeggeri_serviti = model.addVar(vtype=GRB.INTEGER, name="pax_served")  # todo
@@ -104,24 +97,13 @@ for i, arc in enumerate(passenger_arcs):
     u, v = arc
     relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
     for p in paths:
-        # Controlla se u e v sono nel percorso, e se u viene prima di v
+        # Controlla se u e v sono nel percorso p
         if relevant_paths:
-            window_start, window_end = pickup_window.get(u, (0, 1e5))
+            window_start, window_end = pickup_window.get(u, (0, 1e4))
 
             # Vincoli sulla finestra temporale per l'origine u (soft con Big-M)
             model.addConstr(arrival_time[u] >= window_start - (1 - Z[p]) * M, name=f"window_start_{i}_{p}")
             model.addConstr(arrival_time[u] <= window_end + (1 - Z[p]) * M, name=f"window_end_{i}_{p}")
-
-            # Il passeggero può essere servito solo se il percorso p è attivo
-            model.addConstr(
-                x[i] <= quicksum(Z[p] for p in relevant_paths),
-                name=f"x_path_check_{i}"
-            )
-
-# todo vincolo disattivato perchè è stato aggiunto il vincolo del budget che limita i percorsi selezionabili
-# Solo uno dei percorsi può essere scelto
-# model.addConstr(quicksum(Z[p] for p in paths) <= 2, name="max_one_path")
-
 
 # Orari di arrivo nei nodi (solo se il percorso è scelto)
 for p, arcs in paths.items():
@@ -139,22 +121,40 @@ for p, arcs in paths.items():
 # === VINCOLI PASSEGGERI & CAPACITÀ ===
 # ========================
 
-# Mappa arco -> lista di passeggeri che lo usano
-arc_to_passengers = {arc: [] for arc in w}
-for i, arc in enumerate(passenger_arcs):
-    arc_to_passengers[arc].append(i)
+# Genera una lista ordinata di stazioni per ogni percorso
+# Per ogni passeggero calcoliamo origine e destinazione
+# Origin: min tra i due nodi dell'arco; Destination: max (ipotesi che i passeggeri vadano "avanti")
+origin = [min(u, v) for u, v in passenger_arcs]
+destination = [max(u, v) for u, v in passenger_arcs]
+station_lists = {}
 
-# VINCOLI DI CAPACITÀ
-# Capacità su ogni tratta: passeggeri che passano non devono superare capMax
-for arc, pax_ids in arc_to_passengers.items():
-    u, v = arc
-    # Trova i percorsi che contengono entrambi i nodi u e v (anche indirettamente)
-    relevant_paths = [p for p in paths if u in path_nodes[p] and v in path_nodes[p]]
+for p, arcs in paths.items():
+    # Costruzione della lista stazioni per ogni percorso p
+    station_list = [arcs[0][0]]
+    for (u, v) in arcs:
+        if station_list[-1] == u:
+            station_list.append(v)
+        elif station_list[-1] == v:
+            station_list.append(u)
+        else:
+            raise ValueError(f"Inconsistenza negli archi del percorso {p}: ({u}, {v})")
+    station_lists[p] = station_list
 
-    if relevant_paths:
+    # Per ogni tratta consecutiva nel percorso p
+    for idx in range(len(station_list) - 1):
+        u = station_list[idx]
+        v = station_list[idx + 1]
+
+        # Passeggeri a bordo tra u e v
+        pax_on_segment = [
+            i for i in range(num_passengers)
+            if min(origin[i], destination[i]) <= u < max(origin[i], destination[i])
+        ]
+
+        # Vincolo di capacità sulla tratta (u, v) per percorso p
         model.addConstr(
-            quicksum(x[i] for i in pax_ids) <= capMax * quicksum(Z[p] for p in relevant_paths),
-            name=f"cap_{arc}"
+            quicksum(x[i] for i in pax_on_segment) <= capMax,
+            name=f"capacity_segment_{p}_{u}_{v}"
         )
 
 # VINCOLI DI SERVIZIO PASSEGGERI
@@ -184,6 +184,7 @@ for i, arc in enumerate(passenger_arcs):
         # Se l'arco non è compatibile con alcun percorso, il passeggero non può essere servito
         model.addConstr(x[i] == 0, name=f"x_invalid_arc_{i}")
 
+# serve solo a semplificare la leggibilità della funzione obbiettivo
 model.addConstr(passeggeri_serviti == quicksum(x[i] for i in range(num_passengers)), name="pax_served_sum")
 
 # Numero minimo di passeggeri che vanno serviti (70% del totale)
@@ -195,6 +196,10 @@ model.addConstr(
     name="budget_constraint"
 )
 
+
+
+# Solo uno dei percorsi può essere scelto
+model.addConstr(quicksum(Z[p] for p in paths) <= 1, name="max_one_path")
 # ======================
 # === FUNZIONE OBIETTIVO ===
 # ======================
@@ -225,7 +230,7 @@ model.optimize()
 # ======================
 
 print("======================")
-
+print(passenger_arcs)
 print("======================")
 
 if model.status == GRB.OPTIMAL:
@@ -285,5 +290,3 @@ else:
     # Scrivi il modello IIS su file per ispezione manuale
     model.write("model.ilp")  # Puoi aprirlo con un editor di testo
     print("File LP e ILP scritti con successo.")
-
-
